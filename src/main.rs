@@ -1,34 +1,56 @@
-use tray_item::TrayItem;
-use gtk;
-use gio::ResourceLookupFlags;
+use ksni;
+use ksni::Icon;
+use std::io::Cursor;
+
+#[derive(Debug)]
+struct MyTray {
+    selected_option: usize,
+    checked: bool,
+    ti: Vec<u8>,
+}
+
+impl ksni::Tray for MyTray {
+    fn title(&self) -> String {
+        "MyTray".into()
+    }
+
+    fn icon_pixmap(&self) -> Vec<Icon> {
+        vec![Icon {
+           width: 64,
+           height: 64,
+            data: self.ti.clone()
+        }]
+    }
+
+    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::*;
+        vec![
+            StandardItem {
+                label: "Exit".into(),
+                icon_name: "application-exit".into(),
+                activate: Box::new(|_| std::process::exit(0)),
+                ..Default::default()
+            }
+            .into(),
+        ]
+    }
+}
 
 fn main() {
-    gtk::init().unwrap();
+    let cursor = Cursor::new(include_bytes!("../assets/test.png"));
+    let decoder = png::Decoder::new(cursor);
+    let (info, mut reader) = decoder.read_info().unwrap();
+    let mut buf = vec![0; info.buffer_size()];
+    reader.next_frame(&mut buf).unwrap();
 
-    let res_bytes = include_bytes!("../resources.gresource");
-    let data = glib::Bytes::from(&res_bytes[..]);
-    let resources = gio::Resource::from_data(&data).unwrap();
-    gio::resources_register(&resources);
+    let service = ksni::TrayService::new(MyTray {
+        selected_option: 0,
+        checked: false,
+        ti: buf
+    });
 
-    let svg = gio::resources_lookup_data("/org/gtk/test/assets/test.svg", ResourceLookupFlags::all()).expect("Failed to load svg");
-    println!("Svg size: {}", svg.len());
-    let png = gio::resources_lookup_data("/org/gtk/test/assets/test.png", ResourceLookupFlags::all()).expect("Failed to load png");
-    println!("Png size: {}", png.len());
-
-    let mut tray = TrayItem::new("Tray Example", "/org/gtk/test/assets/test.svg").unwrap();
-    // let mut tray = TrayItem::new("Tray Example", "/org/gtk/test/assets/test.png").unwrap();
-    // let mut tray = TrayItem::new("Tray Example", "accessories-calculator").unwrap();
-
-    tray.add_label("Tray Label").unwrap();
-
-    tray.add_menu_item("Hello", || {
-        println!("Hello!");
-    }).unwrap();
-
-    tray.add_menu_item("Quit", || {
-        gtk::main_quit();
-    }).unwrap();
-
-    gtk::main();
-
+    service.spawn();
+    loop {
+        std::thread::park();
+    }
 }
